@@ -72,7 +72,25 @@
     -webkit-transition: opacity 0.5s ease; transition: opacity 0.5s ease;
   }
   #card.fade { opacity: 0; }
+  #airlineRow {
+    display: -webkit-flex; display: flex;
+    -webkit-align-items: center; align-items: center;
+    min-width: 0;
+  }
+  #logoBox {
+    display: none;
+    -webkit-flex-shrink: 0; flex-shrink: 0;
+    width: 12vh; height: 12vh;
+    margin-right: 2.5vw;
+    -webkit-align-items: center; align-items: center;
+    -webkit-justify-content: center; justify-content: center;
+    border-radius: 1.6vh;
+    position: relative; z-index: 60; /* sit above the LED dot overlay */
+  }
+  #logoBox.tile { background: #f4f1e8; }
+  #logoBox img { max-width: 86%; max-height: 86%; display: block; }
   #airline {
+    -webkit-flex: 1; flex: 1; min-width: 0;
     font-size: 9vh;
     color: var(--white);
     letter-spacing: 0.04em;
@@ -197,7 +215,10 @@
   </div>
 
   <div id="card">
-    <div id="airline" class="glow">&nbsp;</div>
+    <div id="airlineRow">
+      <div id="logoBox"><img id="logo" alt=""></div>
+      <div id="airline" class="glow">&nbsp;</div>
+    </div>
     <div id="flight" class="glow">&nbsp;</div>
     <div id="route">
       <div class="apt">
@@ -376,6 +397,7 @@
       var fr = d && d.response && d.response.flightroute;
       var r = fr ? {
         airline: fr.airline ? fr.airline.name : null,
+        airlineIata: fr.airline ? fr.airline.iata : null,
         iataFlight: fr.callsign_iata || null,
         from: fr.origin ? (fr.origin.iata_code || fr.origin.icao_code) : null,
         fromCity: fr.origin ? (fr.origin.municipality || fr.origin.name) : null,
@@ -409,6 +431,35 @@
   function typeName(a) {
     if (a.t && TYPES[a.t]) return TYPES[a.t];
     return a.t || "--";
+  }
+
+  // ---------- Airline logos (Google Flights images, by IATA code) ----------
+  // Tries the dark-background version first, then the standard one on a light tile.
+  var logoFail = {};
+  function showLogo(iata) {
+    var box = $("logoBox"), img = $("logo");
+    if (!iata || logoFail[iata] === 2) { box.style.display = "none"; img.removeAttribute("src"); return; }
+    var variants = [
+      { url: "https://www.gstatic.com/flights/airline_logos/70px/dark/" + iata + ".png", tile: false },
+      { url: "https://www.gstatic.com/flights/airline_logos/70px/" + iata + ".png", tile: true }
+    ];
+    var i = logoFail[iata] || 0;
+    function load() {
+      var v = variants[i];
+      img.onload = function () {
+        if (img.naturalWidth < 4) { img.onerror(); return; }
+        box.className = v.tile ? "tile" : "";
+        box.style.display = "-webkit-flex"; box.style.display = "flex";
+      };
+      img.onerror = function () {
+        i++; logoFail[iata] = i;
+        if (i < variants.length) load();
+        else { box.style.display = "none"; }
+      };
+      img.src = v.url;
+    }
+    box.style.display = "none";
+    load();
   }
 
   // ---------- State ----------
@@ -500,6 +551,7 @@
       var airline = (r && r.airline) || (p.callsign ? "" : "") ;
       if (!airline) airline = p.desc ? p.desc : (p.reg ? p.reg : "AIRCRAFT " + (p.hex || "").toUpperCase());
       setText("airline", airline.toUpperCase());
+      showLogo(r && r.airlineIata ? r.airlineIata : null);
       var fl = [];
       if (r && r.iataFlight && r.iataFlight !== p.callsign) fl.push(r.iataFlight);
       if (p.callsign) fl.push(p.callsign);
