@@ -401,6 +401,8 @@
         iataFlight: fr.callsign_iata || null,
         from: fr.origin ? (fr.origin.iata_code || fr.origin.icao_code) : null,
         fromCity: fr.origin ? (fr.origin.municipality || fr.origin.name) : null,
+        fromLat: fr.origin ? fr.origin.latitude : null, fromLon: fr.origin ? fr.origin.longitude : null,
+        toLat: fr.destination ? fr.destination.latitude : null, toLon: fr.destination ? fr.destination.longitude : null,
         to: fr.destination ? (fr.destination.iata_code || fr.destination.icao_code) : null,
         toCity: fr.destination ? (fr.destination.municipality || fr.destination.name) : null
       } : null;
@@ -410,6 +412,25 @@
       if (e && e.status === 404) routeCache[callsign] = null; // known-unknown; don't retry
       return null;
     });
+  }
+
+  // Is the plane plausibly on this route? Route databases go stale when airlines
+  // reuse flight numbers, so reject routes whose path is nowhere near the plane.
+  function routePlausible(r, lat, lon) {
+    if (!r || typeof r.fromLat !== "number" || typeof r.toLat !== "number" ||
+        typeof r.fromLon !== "number" || typeof r.toLon !== "number") return true; // can't check
+    var NEAR_AIRPORT = 80, OFF_PATH = 120, R = 3958.8, toR = Math.PI / 180;
+    if (haversineMi(lat, lon, r.fromLat, r.fromLon) <= NEAR_AIRPORT) return true;
+    if (haversineMi(lat, lon, r.toLat, r.toLon) <= NEAR_AIRPORT) return true;
+    function bearing(a1, o1, a2, o2) {
+      a1 *= toR; a2 *= toR; var dl = (o2 - o1) * toR;
+      return Math.atan2(Math.sin(dl) * Math.cos(a2), Math.cos(a1) * Math.sin(a2) - Math.sin(a1) * Math.cos(a2) * Math.cos(dl));
+    }
+    var d13 = haversineMi(r.fromLat, r.fromLon, lat, lon) / R;
+    var d12 = haversineMi(r.fromLat, r.fromLon, r.toLat, r.toLon);
+    var xt = Math.asin(Math.sin(d13) * Math.sin(bearing(r.fromLat, r.fromLon, lat, lon) - bearing(r.fromLat, r.fromLon, r.toLat, r.toLon)));
+    var along = Math.acos(Math.max(-1, Math.min(1, Math.cos(d13) / Math.cos(xt)))) * R;
+    return Math.abs(xt * R) <= OFF_PATH && along <= d12 + 50;
   }
 
   // Friendly aircraft type names for common ICAO codes
@@ -487,6 +508,7 @@
         rate: typeof a.baro_rate === "number" ? a.baro_rate : (typeof a.geom_rate === "number" ? a.geom_rate : 0),
         spd: typeof a.gs === "number" ? a.gs : null,
         dist: d,
+        lat: a.lat, lon: a.lon,
         type: typeName(a),
         desc: a.desc || ""
       });
@@ -558,7 +580,7 @@
       if (p.reg && fl.indexOf(p.reg) < 0) fl.push(p.reg);
       setText("flight", fl.join("  ·  "));
 
-      if (r && r.from && r.to) {
+      if (r && r.from && r.to && routePlausible(r, p.lat, p.lon)) {
         $("route").style.display = "";
         $("noroute").style.display = "none";
         setText("from", r.from); setText("to", r.to);
